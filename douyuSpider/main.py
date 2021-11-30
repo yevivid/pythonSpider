@@ -1,10 +1,16 @@
 import re
 import threading
 import time
+from datetime import datetime
 
 import websocket
 import mysql.connector
+import requests
 
+
+roomId = '286138'
+
+startTime = datetime.strptime('1970-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
 
 # 将字符串数据按照斗鱼协议封装为字节流
 def dy_encode(msg):
@@ -27,18 +33,18 @@ def dy_encode(msg):
 
 
 # 发送登录请求消息
-def login(ws, uid):
-    msg = 'type@=loginreq/roomid@={}/'.format(uid)
-    msg = 'type@=loginreq/roomid@={}/dfl@=/username@=visitor955293/uid@=1309578141/ver@=20190610/aver@=218101901/ct@=0/'.format(uid)
+def login(ws):
+    msg = 'type@=loginreq/roomid@={}/'.format(roomId)
+    msg = 'type@=loginreq/roomid@={}/dfl@=/username@=visitor955293/uid@=1309578141/ver@=20190610/aver@=218101901/ct@=0/'.format(
+        roomId)
     msg_bytes = dy_encode(msg)
     ws.send(msg_bytes)
 
 
-
 # 发送入组消息
-def join_group(ws, uid):
-    msg = 'type@=joingroup/username@=rieuse/password@=douyu/rid@={}/gid@=-9999/'.format(uid)
-    msg = 'type@=joingroup/rid@={}/gid@=-9999/'.format(uid)
+def join_group(ws):
+    msg = 'type@=joingroup/username@=rieuse/password@=douyu/rid@={}/gid@=-9999/'.format(roomId)
+    msg = 'type@=joingroup/rid@={}/gid@=-9999/'.format(roomId)
     msg_bytes = dy_encode(msg)
     ws.send(msg_bytes)
 
@@ -65,34 +71,38 @@ def on_close(ws):
     print('close')
 
 
+
+def getStartTime():
+    url = 'https://www.douyu.com/swf_api/h5room/{}'.format(roomId)
+    html = requests.get(url).json()
+    time_local = time.localtime(int(html['data']['show_time']))
+
+    global startTime
+    startTime = time.strftime("%Y-%m-%d %H:%M:%S", time_local)
+    print(startTime)
+
+
 def connect_mysql(text):
     cnx = mysql.connector.connect(user='yinianvivid', password='123456',
                                   host='127.0.0.1',
                                   database='spider')
 
-    sql = ("INSERT INTO live (NAME,context,TIME)" + " VALUES (%s,%s,NOW())")
-    data = (text[0], text[1])
+    sql = ("INSERT INTO live_douyu"+roomId+ "(nickName,content,TIME,startTime)" + " VALUES (%s,%s,NOW(),%s)")
+    data = (text[0], text[1],startTime)
 
     cnx.cursor().execute(sql, data)
     cnx.commit()
     cnx.close()
 
-
-def keep_live(ws):
-    heart_data_bytes = dy_encode("type@=mrkl/")
-    ws.send(heart_data_bytes)
-    time.sleep(30)
-
-
 def on_open(ws):
     print('open')
-    # uid = '501761'
-    # uid = '74751'
-    uid = '1863767'
-    login(ws, uid)
-    time.sleep(3)
+    # 获取开播时间
+    getStartTime()
+    # 登录
+    login(ws)
+    time.sleep(1)
     # 登录后发送入组消息
-    join_group(ws, uid)
+    join_group(ws)
 
 
 ws = websocket.WebSocketApp('wss://danmuproxy.douyu.com:8502/',
@@ -102,8 +112,9 @@ ws = websocket.WebSocketApp('wss://danmuproxy.douyu.com:8502/',
 def main(ws):
     ws.run_forever()
 
-main_thread = threading.Thread(target=main(ws))
-heart_thread = threading.Thread(target=keep_live(ws))
-
-main_thread.start()
-heart_thread.start()
+if __name__ == '__main__':
+    while True:
+        try:
+            main(ws)
+        except:
+            continue
